@@ -203,7 +203,7 @@ float sceneSdf(float3 pos, float3 normal, UnitySamplerState samplerstate, out fl
 	outColor = float4(0, 0, 0, 0);
 	outSmoothness = 0;
 	outMetallic = 0;
-	float3 texColor = float3(0, 0, 0);
+	float3 texColor = float3(1, 1, 1);
 
 	for (int i = 0; i < SDFCount; i++)
 	{

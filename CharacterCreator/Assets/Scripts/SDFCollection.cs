@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 [ExecuteAlways]
@@ -158,27 +159,30 @@ public class SDFCollection : MonoBehaviour
             tmpTex = sdfObjects[0].MainTexture;
         }
 
-        if (sideTexArray == null || sideTexArray.width != tmpTex.width || sideTexArray.height != tmpTex.height)
+        //if (sideTexArray == null || sideTexArray.width != tmpTex.width || sideTexArray.height != tmpTex.height)
         {
             sideTexArray = new Texture2DArray(tmpTex.width, tmpTex.height, numSDFObjects, tmpTex.format, tmpTex.mipmapCount > 1);
             sideTexArray.anisoLevel = tmpTex.anisoLevel;
             sideTexArray.filterMode = tmpTex.filterMode;
             sideTexArray.wrapMode = tmpTex.wrapMode;
         }
-        if (topTexArray == null || topTexArray.width != tmpTex.width || topTexArray.height != tmpTex.height)
+        //if (topTexArray == null || topTexArray.width != tmpTex.width || topTexArray.height != tmpTex.height)
         {
             topTexArray = new Texture2DArray(tmpTex.width, tmpTex.height, numSDFObjects, tmpTex.format, tmpTex.mipmapCount > 1);
             topTexArray.anisoLevel = tmpTex.anisoLevel;
             topTexArray.filterMode = tmpTex.filterMode;
             topTexArray.wrapMode = tmpTex.wrapMode;
         }
-        if (frontTexArray == null || frontTexArray.width != tmpTex.width || frontTexArray.height != tmpTex.height)
+        //if (frontTexArray == null || frontTexArray.width != tmpTex.width || frontTexArray.height != tmpTex.height)
         {
             frontTexArray = new Texture2DArray(tmpTex.width, tmpTex.height, numSDFObjects, tmpTex.format, tmpTex.mipmapCount > 1);
             frontTexArray.anisoLevel = tmpTex.anisoLevel;
             frontTexArray.filterMode = tmpTex.filterMode;
             frontTexArray.wrapMode = tmpTex.wrapMode;
         }
+
+        Color[] colors = new Color[tmpTex.width * tmpTex.height];
+        Array.Fill(colors, Color.white);
 
         // TODO: optimise this.
         // It should only copy things that have changed.
@@ -187,10 +191,19 @@ public class SDFCollection : MonoBehaviour
             if (sdfObjects[i].MainTexture != null)
             {
                 Graphics.CopyTexture(sdfObjects[i].MainTexture, 0, 0, sideTexArray, i, 0);
+                Graphics.CopyTexture(sdfObjects[i].MainTexture, 0, 0, frontTexArray, i, 0);
+                Graphics.CopyTexture(sdfObjects[i].MainTexture, 0, 0, topTexArray, i, 0);
+
                 //for (int m = 0; m < tmpTex.mipmapCount; m++)
                 //{
                 //    Graphics.CopyTexture(sdfObjects[i].MainTexture, 0, m, sideTexArray, i, m);
                 //}
+            }
+            else
+            {
+                sideTexArray.SetPixels(colors, i);
+                frontTexArray.SetPixels(colors, i);
+                topTexArray.SetPixels(colors, i);
             }
         }
     }
