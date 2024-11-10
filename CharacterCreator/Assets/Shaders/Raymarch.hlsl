@@ -56,13 +56,13 @@ float2 add_smoothMin2(float a, float b, float k)
 	return (a < b) ? float2(a - s, m) : float2(b - s, m - 1.0);
 }
 
-float subtract(float a, float b, float k)
+float2 subtract(float a, float b, float k)
 {
 	float h = clamp(0.5 - 0.5 * (a + b) / k, 0.0, 1.0);
 	return float2(lerp(a, -b, h) + k * h * (1.0 - h), 0);
 }
 
-float intersect(float a, float b)
+float2 intersect(float a, float b)
 {
 	return float2(max(a, b), 0);
 }
