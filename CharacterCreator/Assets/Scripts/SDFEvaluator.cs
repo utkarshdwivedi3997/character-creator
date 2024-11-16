@@ -5,8 +5,10 @@ using Utkarsh.UnityCore;
 
 public class SDFEvaluator : MonoBehaviour
 {
-	// This class has the same SDF functions as the shader
-	const int MAX_ITERS = 1024;
+	private SDFCollection sdfCollection;
+#region BASE SDFs
+    // This class has the same SDF functions as the shader
+    const int MAX_ITERS = 1024;
 	const float MAX_DIST = 100000f;
 	const float MIN_DIST = 10e-4f;
 
@@ -120,88 +122,145 @@ public class SDFEvaluator : MonoBehaviour
 		return sdf - roundness;
 	}
 
-	public static bool IsInsideSDF(Vector3 pt)
+	public static float GetSDFValue(Vector3 pt)
     {
-		return sdfSphere(pt, 0.7f) <= 0.0f;
-		//return sdfCappedCone(pt, 0.7f, 0.2f, 0.6f) <= 0.0f;
+        return sdfSphere(pt, 0.5f);
+        //return sdfCappedCone(pt, 0.7f, 0.2f, 0.6f);
+    }
+#endregion
+
+    public void Initialize(SDFCollection sdfCollection)
+	{
+		this.sdfCollection = sdfCollection;
+	}
+
+	float sdfElement(Vector3 pos, int index, int lastIndex)
+    {
+        Vector3 posTransformed;
+        Vector2 sdf = new Vector2(MAX_DIST, 1.0f);
+
+        for (int i = index; i < lastIndex; i++)
+        {
+			SDFObject sdfObject = sdfCollection.SdfObjects[i];
+            float size = sdfObject.ShapeData.x;
+            SDFObject.BlendOperationEnum blendOp = i == index ? SDFObject.BlendOperationEnum.Add : sdfObject.BlendOperation;    // the first individual element should always ADD 
+            SDFObject.SDFObjectType sdfType = sdfObject.Type;
+
+            Matrix4x4 transform = sdfObject.transform.worldToLocalMatrix;
+			posTransformed = transform.MultiplyPoint(pos);
+
+            float roundness = sdfObject.ShapeData.w; // .w is always roundness
+
+            float curSdf = 0.0f;
+            float blendT = 0.0f;
+
+            if (sdfType == SDFObject.SDFObjectType.Sphere)
+            {
+                curSdf = sdfSphere(posTransformed, size);
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Cube)
+            {
+                curSdf = sdfBox(posTransformed, new Vector3(size, size, size));
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Torus)
+            {
+                curSdf = sdfTorus(posTransformed, new Vector2(size, sdfObject.ShapeData.y));
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Cylinder)
+            {
+                curSdf = sdfCylinder(posTransformed, sdfObject.ShapeData.y, size);
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Capsule)
+            {
+                curSdf = sdfCapsule(posTransformed, sdfObject.ShapeData.y, size);
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Octahedron)
+            {
+                curSdf = sdfOctahedron(posTransformed, size);
+            }
+            else if (sdfType == SDFObject.SDFObjectType.Cone)
+            {
+                curSdf = sdfCappedCone(posTransformed, size, sdfObject.ShapeData.y, sdfObject.ShapeData.z);
+            }
+
+            if (roundness > 0.0)
+            {
+                curSdf = sdfRoundness(curSdf, roundness);
+            }
+
+            if (blendOp == SDFObject.BlendOperationEnum.Add)   // add
+            {
+                sdf = add_smoothMin2(sdf.x, curSdf, sdfObject.BlendFactor);
+                blendT = sdf.y;
+            }
+            else if (blendOp == SDFObject.BlendOperationEnum.Subtract)  // subtract
+            {
+                sdf = subtract(sdf.x, curSdf, sdfObject.BlendFactor);
+                blendT = sdf.y;
+            }
+            else if (blendOp == SDFObject.BlendOperationEnum.Intersect)  // intersect
+            {
+                sdf = intersect(sdf.x, curSdf);
+                blendT = sdf.y;
+            }
+            else    // colour blend
+            {
+                // sdf doesn't change! we only update colors
+                Vector2 tmp = add_smoothMin2(sdf.x, curSdf, sdfObject.BlendFactor);
+                blendT = tmp.y;
+            }
+        }
+
+        return sdf.x;
     }
 
-	//float sdfElement(Vector3 pos, int index, int lastIndex)
-	//{
-	//	Vector3 posTransformed;
-	//	Vector2 sdf = new Vector2(MAX_DIST, 1.0f);
+	public float sceneSdf(Vector3 pos)
+	{
+		Vector2 sdf = new Vector2(float.MaxValue, 1.0f);
 
-	//	for (int i = index; i < lastIndex; i++)
-	//	{
-	//		float size = SDFData[i].x;
-	//		int blendOp = i == index ? 0 : SDFBlendOperation[i];    // the first individual element should always ADD 
-	//		int sdfType = SDFType[i];
+		int i = 0;
+		int sdfsDone = 0;
+		while (sdfsDone < sdfCollection.SdfCountCompounded)
+		{
+			SDFObject sdfObject = sdfCollection.SdfObjects[i];
+			SDFObject.SDFObjectType sdfType = sdfObject.Type;
+			int elementIndex = i;
+			SDFObject.BlendOperationEnum blendOp = sdfObject.BlendOperation;
 
-	//		float4x4 transform = SDFTransformMatrices[i];
-	//		posTransformed = mul(transform, float4(pos, 1.0)).xyz;
+			if (sdfType == SDFObject.SDFObjectType.Compound)  // compound sdf
+			{
+				elementIndex++; // this is the parent. ignore and go to children
+			}
 
-	//		float roundness = SDFData[i].w; // .w is always roundness
+			float curSdf = sdfElement(pos, elementIndex, (int)sdfCollection.OffsetsToNextSdf[sdfsDone]);
+			float blendT = 0.0f;
 
-	//		float curSdf = 0.0f;
-	//		float blendT = 0.0f;
+			if (blendOp == SDFObject.BlendOperationEnum.Add)   // add
+			{
+				sdf = add_smoothMin2(sdf.x, curSdf, sdfObject.BlendFactor);
+				blendT = sdf.y;
+			}
+			else if (blendOp == SDFObject.BlendOperationEnum.Subtract)  // subtract
+			{
+				sdf = subtract(sdf.x, curSdf, sdfObject.BlendFactor);
+				blendT = sdf.y;
+			}
+			else if (blendOp == SDFObject.BlendOperationEnum.Intersect)  // intersect
+			{
+				sdf = intersect(sdf.x, curSdf);
+				blendT = sdf.y;
+			}
+			else    // colour blend
+			{
+				// sdf doesn't change! we only update colors
+				Vector2 tmp = add_smoothMin2(sdf.x, curSdf, sdfObject.BlendFactor);
+				blendT = tmp.y;
+			}
 
-	//		if (sdfType == 0)
-	//		{
-	//			curSdf = sdfSphere(posTransformed, size);
-	//		}
-	//		else if (sdfType == 1)
-	//		{
-	//			curSdf = sdfBox(posTransformed, size);
-	//		}
-	//		else if (sdfType == 2)
-	//		{
-	//			curSdf = sdfTorus(posTransformed, Vector2(size, SDFData[i].y));
-	//		}
-	//		else if (sdfType == 3)
-	//		{
-	//			curSdf = sdfCylinder(posTransformed, SDFData[i].y, size);
-	//		}
-	//		else if (sdfType == 4)
-	//		{
-	//			curSdf = sdfCapsule(posTransformed, SDFData[i].y, size);
-	//		}
-	//		else if (sdfType == 5)
-	//		{
-	//			curSdf = sdfOctahedron(posTransformed, size);
-	//		}
-	//		else if (sdfType == 6)
-	//		{
-	//			curSdf = sdfCappedCone(posTransformed, size, SDFData[i].y, SDFData[i].z);
-	//		}
+			i = (int)sdfCollection.OffsetsToNextSdf[sdfsDone];
+			sdfsDone++;
+		}
 
-	//		if (roundness > 0.0)
-	//		{
-	//			curSdf = sdfRoundness(curSdf, roundness);
-	//		}
-
-	//		if (blendOp == 0)   // add
-	//		{
-	//			sdf = add_smoothMin2(sdf, curSdf, SDFBlendFactor[i]);
-	//			blendT = sdf.y;
-	//		}
-	//		else if (blendOp == 1)  // subtract
-	//		{
-	//			sdf = subtract(sdf, curSdf, SDFBlendFactor[i]);
-	//			blendT = sdf.y;
-	//		}
-	//		else if (blendOp == 2)  // intersect
-	//		{
-	//			sdf = intersect(sdf, curSdf);
-	//			blendT = sdf.y;
-	//		}
-	//		else    // colour blend
-	//		{
-	//			// sdf doesn't change! we only update colors
-	//			Vector2 tmp = add_smoothMin2(sdf, curSdf, SDFBlendFactor[i]);
-	//			blendT = tmp.y;
-	//		}
-	//	}
-
-	//	return sdf.x;
-	//}
+		return sdf.x;
+	}
 }

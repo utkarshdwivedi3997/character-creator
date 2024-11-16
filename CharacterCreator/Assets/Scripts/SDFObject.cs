@@ -118,6 +118,38 @@ public class SDFObject : MonoBehaviour
         this.parentCollection = parentCollection;
     }
 
+    public SDFObject_GPU ToGPUStruct()
+    {
+        SDFObject_GPU gpuSdf = new SDFObject_GPU();
+        gpuSdf.type = (int)Type;
+        gpuSdf.blendOp = (int)BlendOperation;
+        gpuSdf.blendFactor = BlendFactor;
+        gpuSdf.shapeData = ShapeData;
+        gpuSdf.transform = transform.worldToLocalMatrix;
+
+        return gpuSdf;
+    }
+
+    public SDFObjectWithMaterialProperties_GPU ToGPUStructWithMaterialProperties()
+    {
+        SDFObjectWithMaterialProperties_GPU gpuSdf = new SDFObjectWithMaterialProperties_GPU();
+        gpuSdf.type = (int)Type;
+        gpuSdf.blendOp = (int)BlendOperation;
+        gpuSdf.blendFactor = BlendFactor;
+        gpuSdf.shapeData = ShapeData;
+        gpuSdf.transform = transform.worldToLocalMatrix;
+
+        gpuSdf.primaryColor = PrimaryColor;
+        gpuSdf.secondaryColor = SecondaryColor;
+        gpuSdf.emissionColor = EmissionColor;
+        gpuSdf.textureData = TextureData;
+        gpuSdf.textureType = (int)TextureType;
+        gpuSdf.smoothness = Smoothness;
+        gpuSdf.metallic = Metallic;
+
+        return gpuSdf;
+    }
+
     private void OnDisable()
     {
         hasInitialized = false;
@@ -179,4 +211,36 @@ public class SDFObject : MonoBehaviour
         SDFObject sdfObject = parentCollection.InstantiateSDFObject(transform);
         sdfObject.SetAsChildOfCompound();
     }
+}
+
+[System.Serializable]
+public struct SDFObject_GPU
+{
+    public int type;                       // 4 byts
+    public int blendOp;                    // 4 bytes
+    public float blendFactor;              // 4 bytes
+    public Vector4 shapeData;              // 16 bytes ( 4 per float * 4 elements )
+    public Matrix4x4 transform;            // 64 bytes ( 4 per float * 4 per row * 4 per column)
+}
+
+[System.Serializable]
+public struct SDFObjectWithMaterialProperties_GPU
+{
+    public int type;                        // 4 byts
+    public int blendOp;                     // 4 bytes
+    public float blendFactor;               // 4 bytes
+    public Vector4 shapeData;               // 16 bytes ( 4 per float * 4 elements )
+    public Matrix4x4 transform;             // 64 bytes ( 4 per float * 4 per row * 4 per column)
+
+    public Vector4 primaryColor;            // 16 bytes
+    public Vector4 secondaryColor;          // 16 bytes
+    public Vector4 emissionColor;           // 16 bytes
+    public Vector4 textureData;             // 16 bytes
+                                            // .x is texture scale
+                                            // .y
+                                            // .z
+                                            // .w is normal blending strength (for triplanar)
+    public int textureType;                 // 4 bytes
+    public float smoothness;                // 4 bytes
+    public float metallic;                  // 4 bytes
 }

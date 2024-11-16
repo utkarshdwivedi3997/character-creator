@@ -2,7 +2,7 @@
 #define TEXTURINGSHADERINCLUDE
 
 #include "Common.hlsl"
-#include "NoiseFunctions.hlsl"
+#include "../NoiseFunctions.hlsl"
 
 Texture2DArray<float4> TextureArraySide;
 Texture2DArray<float4> TextureArrayTop;
@@ -170,8 +170,10 @@ float Get3DTexture(float3 pos, float3 normal, float4 curSDFTextureData, float SD
 void GetTexture(float3 worldPosition, float3 worldNormal, int sdfObjectIndex, out float4 textureValue)
 {
 	float tex = 0.0f;
-	float4 textureData = SDFTextureData[sdfObjectIndex];
-	float type = SDFTextureType[sdfObjectIndex];
+	SDFObjectWithMaterialProps sdfObject = SDFObjects[sdfObjectIndex];
+
+	float4 textureData = sdfObject.textureData;
+	int type = sdfObject.textureType;
 
 	if (type == 0)	// no texture
 	{
@@ -187,7 +189,7 @@ void GetTexture(float3 worldPosition, float3 worldNormal, int sdfObjectIndex, ou
 		tex = Get3DTexture(worldPosition, worldNormal, textureData, type);
 	}
 
-	textureValue = lerp(SDFPrimaryColors[sdfObjectIndex], SDFSecondaryColors[sdfObjectIndex], tex);
+	textureValue = lerp(sdfObject.primaryColor, sdfObject.secondaryColor, tex);
 }
 
 #endif

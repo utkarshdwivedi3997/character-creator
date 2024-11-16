@@ -1,11 +1,33 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.AI;
+using UnityEngine.UIElements;
 
 [ExecuteInEditMode]
+[RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
 public class MarchingCubes : MonoBehaviour
 {
+    Mesh mesh;
+    MeshFilter meshFilter;
+    MeshRenderer meshRenderer;
+
+    private void Awake()
+    {
+        mesh = new Mesh();
+        meshFilter = GetComponent<MeshFilter>();
+        meshFilter.mesh = mesh;
+
+        meshRenderer = GetComponent<MeshRenderer>();
+        if (meshRenderer.material == null)
+        {
+            Material mat = Resources.Load<Material>("Assets/Materials/Resources/GeneratedMeshMat.mat");
+            meshRenderer.material = mat;
+        }
+    }
+
     // Values from https://paulbourke.net/geometry/polygonise/
     static readonly int[] EDGE_TABLE = new int[] {
         0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
@@ -301,6 +323,13 @@ public class MarchingCubes : MonoBehaviour
         {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
     };
 
+    private static readonly int[,] EDGE_CONNECTED_VERTS = new int[,]
+    {
+        {0,1}, {1,2}, {2,3}, {3,0},     // bottom edges
+        {4,5}, {5,6}, {6,7}, {7,4},     // top edges
+        {0,4}, {1,5}, {2,6}, {3,7}      // edges connecting top and bottom
+    };
+
     public struct Cube
     {
         // Corresponds to the 8 points of the cube
@@ -319,15 +348,25 @@ public class MarchingCubes : MonoBehaviour
         private Vector3 cubeStartPoint;
         private Vector3[] gridPoints;
         private float gridSize;
-        public Cube(Vector3 pt, float size)
+
+        public float[] SurfaceValues
+        {
+            get; private set;
+        }
+
+        public Cube(Vector3 pt, float size, Func<Vector3, float> surfaceValueEvaluator)
         {
             cubeStartPoint = pt;
             gridSize = size;
 
             gridPoints = new Vector3[8];
+
+            SurfaceValues = new float[8];
             for (int i = 0; i < 8; i++)
             {
                 Vector3 offsets = CUBE_POINT_OFFSETS[i];
+
+                SurfaceValues[i] = surfaceValueEvaluator(this[i]);
             }
         }
 
@@ -347,56 +386,196 @@ public class MarchingCubes : MonoBehaviour
     private float gridSize;
     private bool hasInitialized = false;
 
-    public void PerformMarchingCubes(AABB boundingBox, int gridResolution = 5)
+    public void PerformMarchingCubes(AABB boundingBox, Func<Vector3, float> surfaceEvaluator, int gridResolution = 5, bool showDebug = false)
     {
-
-        PerformMarchingCubes(boundingBox, 1.0f / gridResolution, null);
+        PerformMarchingCubes(boundingBox, surfaceEvaluator, 1.0f / gridResolution, showDebug);
     }
 
-    public void PerformMarchingCubes(AABB boundingBox, float gridSize, Func<Vector3, bool> ptInSurfaceEvaluator)
+    public void PerformMarchingCubes(AABB boundingBox, Func<Vector3, float> surfaceEvaluator, float gridSize, bool showDebug = false)
     {
         this.boundingBox = boundingBox;
         this.gridSize = gridSize;
         hasInitialized = true;
 
-        StartCoroutine(DebugMarch());
+        if (showDebug)
+        {
+            StartCoroutine(DebugMarch(surfaceEvaluator));
+        }
+        else
+        {
+            March(surfaceEvaluator);
+        }
     }
 
-    IEnumerator DebugMarch()
+    private Vector3 InterpolateVertexForEdge(int edgeIndex, Cube cube)
     {
-        int i = 0;
+        // Get which vertices make this edge
+        int v0Idx = EDGE_CONNECTED_VERTS[edgeIndex, 0];
+        int v1Idx = EDGE_CONNECTED_VERTS[edgeIndex, 1];
+
+        // Get the actual vertices from their indices
+        Vector3 v0 = cube[v0Idx];
+        Vector3 v1 = cube[v1Idx];
+
+        float s0 = cube.SurfaceValues[v0Idx];
+        float s1 = cube.SurfaceValues[v1Idx];
+
+        float t = Mathf.InverseLerp(s0, s1, 0.0f);
+        Vector3 v = Vector3.Lerp(v0, v1, t);
+        return v;
+    }
+    
+    private void March(Func<Vector3, float> surfaceEvaluator)
+    {
+        List<Vector3> verts = new List<Vector3>();
+        List<int> indices = new List<int>();
+
+        int vertsCount = 0;
+
         for (float x = boundingBox.LowerLeftCorner.x; x < boundingBox.UpperRightCorner.x; x += gridSize)
         {
             for (float y = boundingBox.LowerLeftCorner.y; y < boundingBox.UpperRightCorner.y; y += gridSize)
             {
                 for (float z = boundingBox.LowerLeftCorner.z; z < boundingBox.UpperRightCorner.z; z += gridSize)
                 {
-                    // Is point inside surface?
-                    //if (ptInSurfaceEvaluator(new Vector3(x,y,z)))
-                    //{
-                    //    
-                    //}
-                    Debug.Log(i++);
                     Vector3 startPt = new Vector3(x, y, z);
-                    Cube cube = new Cube(startPt, gridSize);
+                    Cube cube = new Cube(startPt, gridSize, surfaceEvaluator);
 
-                    Debug.DrawLine(cube[0], cube[1], Color.red, 0.1f);
-                    Debug.DrawLine(cube[1], cube[2], Color.red, 0.1f);
-                    Debug.DrawLine(cube[2], cube[3], Color.red, 0.1f);
-                    Debug.DrawLine(cube[3], cube[0], Color.red, 0.1f);
-                    Debug.DrawLine(cube[4], cube[5], Color.red, 0.1f);
-                    Debug.DrawLine(cube[5], cube[6], Color.red, 0.1f);
-                    Debug.DrawLine(cube[6], cube[7], Color.red, 0.1f);
-                    Debug.DrawLine(cube[7], cube[4], Color.red, 0.1f);
-                    Debug.DrawLine(cube[0], cube[4], Color.red, 0.1f);
-                    Debug.DrawLine(cube[1], cube[5], Color.red, 0.1f);
-                    Debug.DrawLine(cube[2], cube[6], Color.red, 0.1f);
-                    Debug.DrawLine(cube[3], cube[7], Color.red, 0.1f);
+                    int triangulationIdx = 0;
 
-                    yield return new WaitForSeconds(0.1f);
+                    if (cube.SurfaceValues[0] <= 0f) triangulationIdx |= 1;
+                    if (cube.SurfaceValues[1] <= 0f) triangulationIdx |= 2;
+                    if (cube.SurfaceValues[2] <= 0f) triangulationIdx |= 4;
+                    if (cube.SurfaceValues[3] <= 0f) triangulationIdx |= 8;
+                    if (cube.SurfaceValues[4] <= 0f) triangulationIdx |= 16;
+                    if (cube.SurfaceValues[5] <= 0f) triangulationIdx |= 32;
+                    if (cube.SurfaceValues[6] <= 0f) triangulationIdx |= 64;
+                    if (cube.SurfaceValues[7] <= 0f) triangulationIdx |= 128;
+
+                    int edgeFlags = EDGE_TABLE[triangulationIdx];
+
+                    if (edgeFlags == 0)
+                    {
+                        continue;    // No intersections (cube is entirely inside or outside the field) so no mesh here
+                    }
+
+                    Vector3[] vertsList = new Vector3[12];
+                    for (int i = 0; i < 12; i++)
+                    {
+                        if ((edgeFlags & (1 << i)) != 0)
+                        {
+                            vertsList[i] = InterpolateVertexForEdge(i, cube);
+                        }
+                    }
+
+                    for (int i = 0; TRI_TABLE[triangulationIdx, i] != -1; i += 3)
+                    {
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i]]);
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i + 1]]);
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i + 2]]);
+
+                        indices.Add(vertsCount);
+                        indices.Add(vertsCount + 2);
+                        indices.Add(vertsCount + 1);
+
+                        mesh.vertices = verts.ToArray();
+                        mesh.triangles = indices.ToArray();
+                        vertsCount += 3;
+                    }
                 }
             }
         }
+
+        Debug.Log("Total `: " + vertsCount);
+    }
+    IEnumerator DebugMarch(Func<Vector3, float> surfaceEvaluator)
+    {
+        List<Vector3> verts = new List<Vector3>();
+        List<int> indices = new List<int>();
+
+        int vertsCount = 0;
+
+        for (float x = boundingBox.LowerLeftCorner.x; x < boundingBox.UpperRightCorner.x; x += gridSize)
+        {
+            for (float y = boundingBox.LowerLeftCorner.y; y < boundingBox.UpperRightCorner.y; y += gridSize)
+            {
+                for (float z = boundingBox.LowerLeftCorner.z; z < boundingBox.UpperRightCorner.z; z += gridSize)
+                {
+                    Vector3 startPt = new Vector3(x, y, z);
+                    Cube cube = new Cube(startPt, gridSize, surfaceEvaluator);
+
+                    int triangulationIdx = 0;
+
+                    if (cube.SurfaceValues[0] <= 0f) triangulationIdx |= 1;
+                    if (cube.SurfaceValues[1] <= 0f) triangulationIdx |= 2;
+                    if (cube.SurfaceValues[2] <= 0f) triangulationIdx |= 4;
+                    if (cube.SurfaceValues[3] <= 0f) triangulationIdx |= 8;
+                    if (cube.SurfaceValues[4] <= 0f) triangulationIdx |= 16;
+                    if (cube.SurfaceValues[5] <= 0f) triangulationIdx |= 32;
+                    if (cube.SurfaceValues[6] <= 0f) triangulationIdx |= 64;
+                    if (cube.SurfaceValues[7] <= 0f) triangulationIdx |= 128;
+
+                    int edgeFlags = EDGE_TABLE[triangulationIdx];
+
+                    if (edgeFlags == 0)
+                    {
+                        continue;    // No intersections (cube is entirely inside or outside the field) so no mesh here
+                    }
+
+                    Vector3[] vertsList = new Vector3[12];
+                    for (int i = 0; i < 12; i++)
+                    {
+                        if ((edgeFlags & (1 << i)) != 0)
+                        {
+                            vertsList[i] = InterpolateVertexForEdge(i, cube);
+                        }
+                    }
+
+                    for (int i = 0; TRI_TABLE[triangulationIdx, i] != -1; i += 3)
+                    {
+                        Debug.Log("EdgeIndex: " + triangulationIdx);
+                        //Vector3 v0 = InterpolateVertexForEdge(TRI_TABLE[triangualtionIdx, i], cube);
+                        //Vector3 v1 = InterpolateVertexForEdge(TRI_TABLE[triangualtionIdx, i + 1], cube);
+                        //Vector3 v2 = InterpolateVertexForEdge(TRI_TABLE[triangualtionIdx, i + 2], cube);
+
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i]]);
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i+1]]);
+                        verts.Add(vertsList[TRI_TABLE[triangulationIdx, i+2]]);
+
+                        indices.Add(vertsCount);
+                        indices.Add(vertsCount + 2);
+                        indices.Add(vertsCount + 1);
+
+                        Debug.DrawLine(verts[vertsCount], verts[vertsCount + 1], Color.green, 0.05f);
+                        Debug.DrawLine(verts[vertsCount + 1], verts[vertsCount + 2], Color.green, 0.05f);
+                        Debug.DrawLine(verts[vertsCount + 2], verts[vertsCount], Color.green, 0.05f);
+
+                        mesh.vertices = verts.ToArray();
+                        mesh.triangles = indices.ToArray();
+                        vertsCount += 3;
+                    }
+
+                    float time = verts.Count == 0 ? 0.01f : 0.05f;
+
+                    Debug.DrawLine(cube[0], cube[1], Color.red, time);
+                    Debug.DrawLine(cube[1], cube[2], Color.red, time);
+                    Debug.DrawLine(cube[2], cube[3], Color.red, time);
+                    Debug.DrawLine(cube[3], cube[0], Color.red, time);
+                    Debug.DrawLine(cube[4], cube[5], Color.red, time);
+                    Debug.DrawLine(cube[5], cube[6], Color.red, time);
+                    Debug.DrawLine(cube[6], cube[7], Color.red, time);
+                    Debug.DrawLine(cube[7], cube[4], Color.red, time);
+                    Debug.DrawLine(cube[0], cube[4], Color.red, time);
+                    Debug.DrawLine(cube[1], cube[5], Color.red, time);
+                    Debug.DrawLine(cube[2], cube[6], Color.red, time);
+                    Debug.DrawLine(cube[3], cube[7], Color.red, time);
+
+                    yield return new WaitForSeconds(time);
+                }
+            }
+        }
+
+        Debug.Log("Total Verts: " + vertsCount);
     }
 
     [ContextMenu("Test")]
@@ -404,11 +583,15 @@ public class MarchingCubes : MonoBehaviour
     {
         PerformMarchingCubes(new AABB { LowerLeftCorner = new Vector3(-1, -1, -1),
                                         UpperRightCorner = new Vector3(1, 1, 1)},
-                             5);
+                             SDFEvaluator.GetSDFValue,
+                            7,
+                            true);
     }
 
     private void OnDrawGizmosSelected()
     {
+        return;
+
         if (!hasInitialized)
         {
             return;
@@ -420,7 +603,21 @@ public class MarchingCubes : MonoBehaviour
             {
                 for (float z = boundingBox.LowerLeftCorner.z; z < boundingBox.UpperRightCorner.z; z += gridSize)
                 {
-                    if (SDFEvaluator.IsInsideSDF(new Vector3(x, y, z)))
+                    Vector3 startPt = new Vector3(x, y, z);
+                    Cube cube = new Cube(startPt, gridSize, SDFEvaluator.GetSDFValue);
+
+                    int edgeIndex = 0;
+
+                    if (SDFEvaluator.GetSDFValue(cube[0]) <= 0f) edgeIndex |= 1;
+                    if (SDFEvaluator.GetSDFValue(cube[1]) <= 0f) edgeIndex |= 2;
+                    if (SDFEvaluator.GetSDFValue(cube[2]) <= 0f) edgeIndex |= 4;
+                    if (SDFEvaluator.GetSDFValue(cube[3]) <= 0f) edgeIndex |= 8;
+                    if (SDFEvaluator.GetSDFValue(cube[4]) <= 0f) edgeIndex |= 16;
+                    if (SDFEvaluator.GetSDFValue(cube[5]) <= 0f) edgeIndex |= 32;
+                    if (SDFEvaluator.GetSDFValue(cube[6]) <= 0f) edgeIndex |= 64;
+                    if (SDFEvaluator.GetSDFValue(cube[7]) <= 0f) edgeIndex |= 128;
+
+                    if (SDFEvaluator.GetSDFValue(new Vector3(x, y, z)) <= 0f)
                     {
                         Gizmos.color = Color.white;
                         Gizmos.DrawSphere(new Vector3(x, y, z), 0.02f);

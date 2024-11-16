@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 
@@ -22,6 +23,12 @@ public class FlingMenu
     private static void PrintNumberOfSelectedGameObjects()
     {
         Debug.Log(Selection.gameObjects.Length);
+    }
+
+    [MenuItem("CustomMenu/Print Size Of SDFObject")]
+    private static void PrintSizeOf()
+    {
+        Debug.Log("Size is: " + UnsafeUtility.SizeOf<SDFObjectWithMaterialProperties_GPU>());
     }
 }
 #endif
